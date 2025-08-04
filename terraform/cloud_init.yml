@@ -1,0 +1,8 @@
+hostname: ${hostname}
+users:
+  - name: ubuntu
+    ssh-authorized_keys:
+      - ${ssh_key}
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    groups: sudo
+    shell: /bin/bash
