@@ -1,0 +1,106 @@
+---
+- name: Setup Kubernetes cluster
+  hosts: k8s_cluster
+  become: yes
+  tasks:
+    - name: Install dependencies
+      apt:
+        name: "{{ packages }}"
+        state: present
+        update_cache: yes
+      vars:
+        packages:
+          - apt-transport-https
+          - ca-certificates
+          - curl
+          - software-properties-common
+          - docker.io
+          - kubelet=1.28.*
+          - kubeadm=1.28.*
+          - kubectl=1.28.*
+      when: ansible_os_family == "Debian"
+
+    - name: Add Kubernetes apt key
+      ansible.builtin.get_url:
+        url: https://pkgs.k8s.io/core:/stable:/v1.28/deb/Release.key
+        dest: /etc/apt/keyrings/kubernetes-apt-keyring.asc
+        mode: "0644"
+
+    - name: Add Kubernetes apt repository
+      ansible.builtin.apt_repository:
+        repo: "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.asc] https://pkgs.k8s.io/core:/stable:/v1.28/deb/ /"
+        state: present
+        filename: kubernetes
+
+    - name: Enable and start Docker
+      systemd:
+        name: docker
+        enabled: yes
+        state: started
+
+    - name: Configure sysctl for Kubernetes
+      sysctl:
+        name: "{{ item }}"
+        value: "1"
+        state: present
+      loop:
+        - net.ipv4.ip_forward
+        - net.bridge.bridge-nf-call-iptables
+        - net.bridge.bridge-nf-call-ip6tables
+
+- name: Initialize Kubernetes master
+  hosts: master
+  become: yes
+  tasks:
+    - name: Initialize kubeadm
+      command: kubeadm init --pod-network-cidr=10.244.0.0/16
+      args:
+        creates: /etc/kubernetes/admin.conf
+      register: kubeadm_init
+
+    - name: Create .kube directory
+      file:
+        path: /home/ubuntu/.kube
+        state: directory
+        owner: ubuntu
+        group: ubuntu
+
+    - name: Copy admin.conf
+      copy:
+        src: /etc/kubernetes/admin.conf
+        dest: /home/ubuntu/.kube/config
+        owner: ubuntu
+        group: ubuntu
+        remote_src: yes
+
+    - name: Install Flannel CNI
+      command: kubectl apply -f https://raw.githubusercontent.com/coreos/flannel/master/Documentation/kube-flannel.yml
+      environment:
+        KUBECONFIG: /home/ubuntu/.kube/config
+
+    - name: Get join command
+      command: kubeadm token create --print-join-command
+      register: join_command
+      when: kubeadm_init.changed
+
+    - name: Save join command
+      copy:
+        content: "{{ join_command.stdout }}"
+        dest: /tmp/kubeadm_join.sh
+        mode: "0644"
+
+- name: Join workers to cluster
+  hosts: workers
+  become: yes
+  tasks:
+    - name: Copy join command
+      copy:
+        src: /tmp/kubeadm_join.sh
+        dest: /tmp/kubeadm_join.sh
+        mode: "0755"
+      delegate_to: k8s-master
+
+    - name: Execute join command
+      command: /tmp/kubeadm_join.sh
+      args:
+        creates: /etc/kubernetes/kubelet.conf

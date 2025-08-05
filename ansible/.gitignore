@@ -1,0 +1,19 @@
+# Ansible specific files
+*.retry
+
+# Python specific files
+*.pyc
+*/__pycache__/
+
+# Cache directories
+.cache/
+
+# Editor/IDE specific files
+.vscode/
+.idea/
+*.swp
+
+# Sensitive files (if not using Ansible Vault for all secrets)
+# my_sensitive_vars.yml
+
+*vault_pass.txt
