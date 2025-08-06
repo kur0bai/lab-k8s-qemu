@@ -17,3 +17,5 @@
 # my_sensitive_vars.yml
 
 *vault_pass.txt
+
+*hosts.ini
